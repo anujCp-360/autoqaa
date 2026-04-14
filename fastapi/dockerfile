@@ -1,0 +1,39 @@
+# 1. Base Image: Slim Python 3.10 (Stable & Lightweight)
+FROM python:3.10-slim
+
+# 2. Install essential system build tools
+# build-essential is required for Polars' high-speed optimizations
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 3. Set Working Directory
+WORKDIR /app
+
+# 4. Install high-performance Python stack
+# We include pydantic>=2.9.0 to stay aligned with the vLLM sidecar
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    polars \
+    celery \
+    redis \
+    requests \
+    ujson \
+    python-multipart \
+    pydantic>=2.9.0
+
+# 5. Copy the Project Structure
+# This assumes the Dockerfile is inside the /fastapi folder
+COPY . .
+
+# 6. Environment Hardening
+# - PYTHONPATH: Ensures 'api.py' can find all local modules
+# - PYTHONUNBUFFERED: Essential for seeing logs in 'docker compose logs -f'
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# 7. Default Execution
+# We use the module flag to ensure uvicorn starts the FastAPI app correctly
+CMD ["python3", "-m", "uvicorn", "api:fastapi_app", "--host", "0.0.0.0", "--port", "8000"]

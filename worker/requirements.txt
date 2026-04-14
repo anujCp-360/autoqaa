@@ -1,0 +1,6 @@
+celery
+redis
+requests
+ujson
+boto3
+openai

@@ -1,0 +1,75 @@
+services:
+  # 1. REDIS
+  redis:
+    image: redis:7-alpine
+    restart: always
+    container_name: redis-broker
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 2. FASTAPI
+  api:
+    image: aaaaadd/autoqa-api:latest
+    build:
+      context: ./fastapi
+      dockerfile: dockerfile
+    container_name: fastapi-api
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - NVME_PATH=/app/data
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./data:/app/data
+      - ./fastapi:/app
+    command: >
+      sh -c "until python3 -m uvicorn api:fastapi_app --host 0.0.0.0 --port 9000; do
+        echo 'FastAPI crashed, restarting in 2 seconds...';
+        sleep 2;
+      done"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # 3. CELERY WORKER
+  celery-worker:
+    image: aaaaadd/autoqa-worker:latest
+    build:
+      context: ./worker
+      dockerfile: dockerfile
+    container_name: celery-worker
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - NVME_PATH=/app/data
+    volumes:
+      - ./data:/app/data
+    command: 
+      - /bin/bash
+      - -c
+      - |
+        while true; do
+          celery -A worker worker -Q celery --concurrency=96 --pool=threads --loglevel=INFO -n worker1@%h &
+          P1=$$!
+          celery -A worker worker -Q stitch_queue --concurrency=1 --loglevel=INFO -n stitcher@%h &
+          P2=$$!
+          
+          wait -n
+          
+          echo "A Celery process died. Restarting all worker processes..."
+          kill $$P1 $$P2 2>/dev/null
+          sleep 2
+        done
+    depends_on:
+      redis:
+        condition: service_healthy
